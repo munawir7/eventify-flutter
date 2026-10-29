@@ -4,8 +4,8 @@ import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 import 'package:qr_flutter/qr_flutter.dart';
 
-import '../../events/models/event_model.dart';
-import '../../events/models/seat_model.dart';
+import '../../../domain/entities/event.dart';
+import '../../../domain/entities/seat.dart';
 
 class DigitalTicketScreen extends StatelessWidget {
   const DigitalTicketScreen({
@@ -16,8 +16,8 @@ class DigitalTicketScreen extends StatelessWidget {
     required this.attendeeName,
   });
 
-  final EventModel event;
-  final List<SeatModel> selectedSeats;
+  final Event event;
+  final List<Seat> selectedSeats;
   final String bookingReference;
   final String attendeeName;
 

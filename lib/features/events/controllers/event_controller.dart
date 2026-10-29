@@ -1,17 +1,35 @@
+import 'dart:developer' as developer;
 
 import 'package:get/get.dart';
 
-import '../../../data/repositories/event_repository.dart';
-import '../models/event_model.dart';
+import '../../../data/repositories/event_repository.dart' as data_event;
+import '../../../domain/entities/event.dart';
+import '../../../domain/repositories/event_repository.dart' as domain_event;
+import '../../../domain/usecases/events/get_all_events_usecases.dart';
 
 class EventsController extends GetxController {
-  final EventRepository _repository = EventRepository();
+  EventsController({
+    GetAllEventsUseCase? getAllEventsUseCase,
+  }) : _getAllEventsUseCase =
+           getAllEventsUseCase ?? _resolveGetAllEventsUseCase();
 
-  // All events retrieved from SQLite.
-  final RxList<EventModel> allEvents = <EventModel>[].obs;
+  static GetAllEventsUseCase _resolveGetAllEventsUseCase() {
+    if (Get.isRegistered<GetAllEventsUseCase>()) {
+      return Get.find<GetAllEventsUseCase>();
+    }
+    final repo = Get.isRegistered<domain_event.EventRepository>()
+        ? Get.find<domain_event.EventRepository>()
+        : Get.put<domain_event.EventRepository>(data_event.EventRepository());
+    return Get.put<GetAllEventsUseCase>(GetAllEventsUseCase(repo));
+  }
+
+  final GetAllEventsUseCase _getAllEventsUseCase;
+
+  // All events retrieved through the domain use case.
+  final RxList<Event> allEvents = <Event>[].obs;
 
   // Events currently displayed on the screen.
-  final RxList<EventModel> filteredEvents = <EventModel>[].obs;
+  final RxList<Event> filteredEvents = <Event>[].obs;
 
   // Loading and error states.
   final RxBool isLoading = false.obs;
@@ -22,6 +40,8 @@ class EventsController extends GetxController {
   final RxString selectedCategory = 'All'.obs;
   final RxString sortBy = 'Date'.obs;
   final RxBool ascending = true.obs;
+
+  bool _isDisposed = false;
 
   final List<String> categories = [
     'All',
@@ -38,50 +58,108 @@ class EventsController extends GetxController {
     loadEvents();
   }
 
-  // Retrieve events from SQLite.
+  void _logError(
+    String operation,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    developer.log(
+      'Failed to $operation.',
+      error: error,
+      stackTrace: stackTrace,
+      name: 'Eventify.EventsController',
+    );
+  }
+
+  // Retrieve events through the domain use case.
   Future<void> loadEvents() async {
+    if (_isDisposed || isLoading.value) {
+      return;
+    }
+
     isLoading.value = true;
     errorMessage.value = '';
 
     try {
-      final events = await _repository.getAllEvents();
+      final events = await _getAllEventsUseCase();
+
+      if (_isDisposed) {
+        return;
+      }
 
       allEvents.assignAll(events);
       _applyFilters();
-    } catch (e) {
-      errorMessage.value = 'Unable to load events. Please try again.';
+    } catch (e, stackTrace) {
+      _logError('load events', e, stackTrace);
+
+      if (!_isDisposed) {
+        errorMessage.value =
+            'Unable to load events. Please try again.';
+      }
     } finally {
-      isLoading.value = false;
+      if (!_isDisposed) {
+        isLoading.value = false;
+      }
     }
   }
 
   // Update the search text.
   void searchEvents(String query) {
+    if (_isDisposed) return;
+
     searchQuery.value = query;
-    _applyFilters();
+    _applyFiltersSafely();
   }
 
   // Update the selected category.
   void filterByCategory(String category) {
+    if (_isDisposed) return;
+
+    if (!categories.contains(category)) {
+      errorMessage.value = 'Please select a valid category.';
+      return;
+    }
+
     selectedCategory.value = category;
-    _applyFilters();
+    _applyFiltersSafely();
   }
 
   // Change sorting options.
   void changeSorting(String option) {
+    if (_isDisposed) return;
+
+    if (option != 'Date' && option != 'Price') {
+      errorMessage.value = 'Please select a valid sorting option.';
+      return;
+    }
+
     sortBy.value = option;
-    _applyFilters();
+    _applyFiltersSafely();
   }
 
   // Toggle ascending and descending order.
   void toggleSortOrder() {
+    if (_isDisposed) return;
+
     ascending.value = !ascending.value;
-    _applyFilters();
+    _applyFiltersSafely();
+  }
+
+  // Handle unexpected errors while filtering.
+  void _applyFiltersSafely() {
+    try {
+      _applyFilters();
+      errorMessage.value = '';
+    } catch (e, stackTrace) {
+      _logError('filter or sort events', e, stackTrace);
+      errorMessage.value =
+          'Unable to filter events. Please try again.';
+    }
   }
 
   // Apply search, category filtering, and sorting.
   void _applyFilters() {
-    List<EventModel> result = List<EventModel>.from(allEvents);
+    List<Event> result = List<Event>.from(allEvents);
 
     // Search by title, category, or venue.
     final query = searchQuery.value.trim().toLowerCase();
@@ -117,5 +195,11 @@ class EventsController extends GetxController {
     }
 
     filteredEvents.assignAll(result);
+  }
+
+  @override
+  void onClose() {
+    _isDisposed = true;
+    super.onClose();
   }
 }

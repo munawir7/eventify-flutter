@@ -1,22 +1,26 @@
+import 'dart:developer' as developer;
 
 import 'package:sqflite/sqflite.dart';
 
 class SeedData {
-  SeedData._();
+SeedData._();
 
-  static Future<void> insertSampleData(Database db) async {
-    final existingEvents = await db.query(
-      'events',
-      columns: ['id'],
-      limit: 1,
-    );
+static Future<void> insertSampleData(Database db) async {
+try {
+await db.transaction((txn) async {
+final existingEvents = await txn.query(
+'events',
+columns: ['id'],
+limit: 1,
+);
+
 
     // Insert sample data only when the events table is empty.
     if (existingEvents.isNotEmpty) {
       return;
     }
 
-    final batch = db.batch();
+    final batch = txn.batch();
 
     final sampleEvents = [
       {
@@ -98,7 +102,10 @@ class SeedData {
     ];
 
     for (final event in sampleEvents) {
-      final eventId = await db.insert('events', event);
+      final eventId = await txn.insert(
+        'events',
+        event,
+      );
 
       // Create seats for this event.
       for (int i = 1; i <= 10; i++) {
@@ -132,6 +139,34 @@ class SeedData {
       }
     }
 
+    // Insert all seats as part of the same transaction.
     await batch.commit(noResult: true);
-  }
+  });
+
+  developer.log(
+    'Sample data initialized successfully.',
+    name: 'Eventify.SeedData',
+  );
+} on DatabaseException catch (e, stackTrace) {
+  developer.log(
+    'Database error while inserting sample data.',
+    error: e,
+    stackTrace: stackTrace,
+    name: 'Eventify.SeedData',
+  );
+
+  rethrow;
+} catch (e, stackTrace) {
+  developer.log(
+    'Unexpected error while initializing sample data.',
+    error: e,
+    stackTrace: stackTrace,
+    name: 'Eventify.SeedData',
+  );
+
+  rethrow;
+}
+
+
+}
 }

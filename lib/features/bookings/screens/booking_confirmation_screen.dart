@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 
-import '../../events/models/event_model.dart';
-import '../../events/models/seat_model.dart';
+import '../../../domain/entities/event.dart';
+import '../../../domain/entities/seat.dart';
 import '../../tickets/screens/digital_ticket_screen.dart';
 
 class BookingConfirmationScreen extends StatelessWidget {
@@ -21,8 +21,8 @@ class BookingConfirmationScreen extends StatelessWidget {
     required this.finalAmount,
   });
 
-  final EventModel event;
-  final List<SeatModel> selectedSeats;
+  final Event event;
+  final List<Seat> selectedSeats;
   final String bookingReference;
   final String attendeeName;
   final String attendeeEmail;

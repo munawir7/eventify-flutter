@@ -1,38 +1,69 @@
 
+import 'dart:developer' as developer;
+
+import 'package:eventify/domain/entities/booking_request.dart';
+import 'package:eventify/domain/entities/event.dart';
+import 'package:eventify/domain/entities/seat.dart';
+import 'package:eventify/domain/usecases/bookings/create_booking_usecases.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:get/get.dart';
 import 'package:sqflite/sqflite.dart';
-import 'package:uuid/uuid.dart';
 
 import '../../../core/constants/app_constants.dart';
-import '../../../data/database/app_database.dart';
-import '../../events/models/event_model.dart';
-import '../../events/models/seat_model.dart';
+import '../../../core/errors/app_exception.dart';
+import '../../../data/repositories/booking_repository_impl.dart';
+import '../../../domain/repositories/booking_repository.dart';
+import '../screens/booking_confirmation_screen.dart';
 
 class BookingController extends GetxController {
   BookingController({
     required this.event,
     required this.selectedSeats,
-  });
+    CreateBookingUseCase? createBookingUseCase,
+  }) : createBookingUseCase =
+            createBookingUseCase ?? _resolveCreateBookingUseCase();
 
-  final EventModel event;
-  final List<SeatModel> selectedSeats;
+  static CreateBookingUseCase _resolveCreateBookingUseCase() {
+    if (Get.isRegistered<CreateBookingUseCase>()) {
+      return Get.find<CreateBookingUseCase>();
+    }
 
-  final AppDatabase _appDatabase = AppDatabase.instance;
+    final bookingRepo = Get.isRegistered<BookingRepository>()
+        ? Get.find<BookingRepository>()
+        : Get.put<BookingRepository>(BookingRepositoryImpl());
 
-  final formKey = GlobalKey<FormState>();
+    return Get.put<CreateBookingUseCase>(CreateBookingUseCase(bookingRepo));
+  }
 
-  final nameController = TextEditingController();
-  final emailController = TextEditingController();
-  final phoneController = TextEditingController();
+  // Dependencies
+  final Event event;
+  final List<Seat> selectedSeats;
+  final CreateBookingUseCase createBookingUseCase;
 
+  // Form controllers
+  final GlobalKey<FormState> formKey = GlobalKey<FormState>();
+
+  final TextEditingController nameController =
+      TextEditingController();
+
+  final TextEditingController emailController =
+      TextEditingController();
+
+  final TextEditingController phoneController =
+      TextEditingController();
+
+  // Reactive state
   final RxBool isBooking = false.obs;
   final RxDouble discountAmount = 0.0.obs;
   final RxDouble finalAmount = 0.0.obs;
 
+  bool _isDisposed = false;
+
+  // Price calculations
   double get totalAmount {
     return selectedSeats.fold<double>(
-      0,
+      0.0,
       (total, seat) => total + seat.price,
     );
   }
@@ -40,27 +71,105 @@ class BookingController extends GetxController {
   @override
   void onInit() {
     super.onInit();
-    calculateAmount();
+    _calculateAmounts();
   }
 
-  void calculateAmount() {
-    final discount = totalAmount >= 2000 ? totalAmount * 0.10 : 0.0;
+  void _calculateAmounts() {
+    final double total = totalAmount;
 
-    discountAmount.value = discount;
-    finalAmount.value = totalAmount - discount;
+    if (total >= 2000) {
+      discountAmount.value = total * 0.10;
+    } else {
+      discountAmount.value = 0.0;
+    }
+
+    finalAmount.value = total - discountAmount.value;
   }
 
+  // Form validation
   bool validateAttendeeDetails() {
-    if (formKey.currentState == null) {
+    if (_isDisposed) {
       return false;
     }
 
-    return formKey.currentState!.validate();
+    return formKey.currentState?.validate() ?? false;
   }
 
-  // Creates the booking and returns its unique reference.
+  String? validateName(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Please enter your full name.';
+    }
+
+    if (value.trim().length < 2) {
+      return 'Name must contain at least 2 characters.';
+    }
+
+    return null;
+  }
+
+  String? validateEmail(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Please enter your email address.';
+    }
+
+    final emailRegex = RegExp(
+      r'^[^@\s]+@[^@\s]+\.[^@\s]+$',
+    );
+
+    if (!emailRegex.hasMatch(value.trim())) {
+      return 'Please enter a valid email address.';
+    }
+
+    return null;
+  }
+
+  String? validatePhone(String? value) {
+    if (value == null || value.trim().isEmpty) {
+      return 'Please enter your phone number.';
+    }
+
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+
+    if (digits.length < 10 || digits.length > 15) {
+      return 'Enter a valid phone number.';
+    }
+
+    return null;
+  }
+
+  // Error handling
+  void _showError(String message) {
+    if (_isDisposed) {
+      return;
+    }
+
+    Get.snackbar(
+      'Booking Failed',
+      message,
+      snackPosition: SnackPosition.BOTTOM,
+      backgroundColor: Colors.red.shade100,
+      colorText: Colors.red.shade900,
+      margin: const EdgeInsets.all(16),
+      duration: const Duration(seconds: 3),
+    );
+  }
+
+  void _logError(
+    String message,
+    Object error,
+    StackTrace stackTrace,
+  ) {
+    developer.log(
+      message,
+      name: 'BookingController',
+      error: error,
+      stackTrace: stackTrace,
+    );
+  }
+
+  // Confirm booking
   Future<String?> confirmBooking() async {
-    if (isBooking.value) {
+    if (_isDisposed || isBooking.value) {
       return null;
     }
 
@@ -69,29 +178,41 @@ class BookingController extends GetxController {
     }
 
     if (selectedSeats.isEmpty) {
-      Get.snackbar(
-        'No seats selected',
-        'Please select at least one seat.',
-        snackPosition: SnackPosition.BOTTOM,
-      );
+      _showError('Please select at least one seat.');
       return null;
     }
 
-    if (selectedSeats.length > AppConstants.maxTicketsPerBooking) {
-      Get.snackbar(
-        'Booking limit reached',
+    if (selectedSeats.length >
+        AppConstants.maxTicketsPerBooking) {
+      _showError(
         'You can book a maximum of '
-            '${AppConstants.maxTicketsPerBooking} seats.',
-        snackPosition: SnackPosition.BOTTOM,
+        '${AppConstants.maxTicketsPerBooking} tickets at a time.',
       );
       return null;
     }
 
-    if (event.id == null) {
-      Get.snackbar(
-        'Booking failed',
-        'The event does not have a valid ID.',
-        snackPosition: SnackPosition.BOTTOM,
+    final int? eventId = event.id;
+
+    if (eventId == null || eventId <= 0) {
+      _showError('The selected event is invalid.');
+      return null;
+    }
+
+    final List<int?> seatIdValues =
+        selectedSeats.map((seat) => seat.id).toList();
+
+    if (seatIdValues.any(
+      (seatId) => seatId == null || seatId <= 0,
+    )) {
+      _showError('One or more selected seats are invalid.');
+      return null;
+    }
+
+    final List<int> seatIds = seatIdValues.cast<int>().toList();
+
+    if (seatIds.toSet().length != seatIds.length) {
+      _showError(
+        'Duplicate seats were selected. Please select your seats again.',
       );
       return null;
     }
@@ -99,150 +220,116 @@ class BookingController extends GetxController {
     isBooking.value = true;
 
     try {
-      final Database db = await _appDatabase.database;
+      final BookingRequest request = BookingRequest(
+        eventId: eventId,
+        seatIds: seatIds,
+        attendeeName: nameController.text.trim(),
+        attendeeEmail: emailController.text.trim(),
+        attendeePhone: phoneController.text.trim(),
+      );
 
-      final bookingReference = await db.transaction<String>((txn) async {
-        // Check that the event still exists and has not started.
-        final eventRows = await txn.query(
-          'events',
-          columns: ['event_date'],
-          where: 'id = ?',
-          whereArgs: [event.id],
-          limit: 1,
-        );
+      final String bookingReference =
+          await createBookingUseCase(request);
 
-        if (eventRows.isEmpty) {
-          throw Exception('This event no longer exists.');
-        }
-
-        final eventDate = DateTime.parse(
-          eventRows.first['event_date'] as String,
-        );
-
-        if (!eventDate.isAfter(DateTime.now())) {
-          throw Exception('This event has already started.');
-        }
-
-        // Check that every selected seat is still available.
-        for (final seat in selectedSeats) {
-          if (seat.id == null) {
-            throw Exception('A selected seat has an invalid ID.');
-          }
-
-          final seatRows = await txn.query(
-            'seats',
-            columns: ['event_id', 'status'],
-            where: 'id = ?',
-            whereArgs: [seat.id],
-            limit: 1,
-          );
-
-          if (seatRows.isEmpty ||
-              seatRows.first['event_id'] != event.id ||
-              seatRows.first['status'] != 'available') {
-            throw Exception(
-              'Seat ${seat.seatNumber} is no longer available.',
-            );
-          }
-        }
-
-        // Generate a unique booking reference.
-        final reference =
-            'EVT-${const Uuid().v4().replaceAll('-', '').substring(0, 8).toUpperCase()}';
-
-        // Read the latest prices from the database.
-        double currentTotal = 0;
-
-        for (final seat in selectedSeats) {
-          final seatRows = await txn.query(
-            'seats',
-            columns: ['price'],
-            where: 'id = ? AND event_id = ? AND status = ?',
-            whereArgs: [seat.id, event.id, 'available'],
-            limit: 1,
-          );
-
-          if (seatRows.isEmpty) {
-            throw Exception(
-              'Seat ${seat.seatNumber} is no longer available.',
-            );
-          }
-
-          currentTotal +=
-              (seatRows.first['price'] as num).toDouble();
-        }
-
-        final currentDiscount =
-            currentTotal >= 2000 ? currentTotal * 0.10 : 0.0;
-
-        final currentFinalAmount = currentTotal - currentDiscount;
-
-        // Save the booking.
-        final bookingId = await txn.insert(
-          'bookings',
-          {
-            'booking_reference': reference,
-            'event_id': event.id,
-            'attendee_name': nameController.text.trim(),
-            'attendee_email': emailController.text.trim(),
-            'attendee_phone': phoneController.text.trim(),
-            'total_amount': currentTotal,
-            'discount_amount': currentDiscount,
-            'final_amount': currentFinalAmount,
-            'booking_date': DateTime.now().toIso8601String(),
-            'status': 'confirmed',
-            'checked_in': 0,
-          },
-          conflictAlgorithm: ConflictAlgorithm.abort,
-        );
-
-        // Mark the seats as booked and link them to the booking.
-        for (final seat in selectedSeats) {
-          final updatedRows = await txn.update(
-            'seats',
-            {'status': 'booked'},
-            where: 'id = ? AND event_id = ? AND status = ?',
-            whereArgs: [seat.id, event.id, 'available'],
-          );
-
-          if (updatedRows != 1) {
-            throw Exception(
-              'Seat ${seat.seatNumber} could not be reserved.',
-            );
-          }
-
-          await txn.insert(
-            'booking_seats',
-            {
-              'booking_id': bookingId,
-              'seat_id': seat.id,
-            },
-            conflictAlgorithm: ConflictAlgorithm.abort,
-          );
-        }
-
-        // Return the reference, not the internal database ID.
-        return reference;
-      });
+      if (_isDisposed) {
+        return null;
+      }
 
       return bookingReference;
-    } catch (e) {
-      final message = e.toString().replaceFirst('Exception: ', '');
+    } on AppException catch (error, stackTrace) {
+      _logError(
+        'Booking failed because of an application error.',
+        error,
+        stackTrace,
+      );
 
-      Get.snackbar(
-        'Booking failed',
-        message,
-        snackPosition: SnackPosition.BOTTOM,
+      _showError(error.message);
+      return null;
+    } on DatabaseException catch (error, stackTrace) {
+      _logError(
+        'Booking failed because of a database error.',
+        error,
+        stackTrace,
+      );
+
+      _showError(
+        'A database error occurred while booking your seats. '
+        'Please try again.',
+      );
+
+      return null;
+    } on FormatException catch (error, stackTrace) {
+      _logError(
+        'Booking failed because of invalid data.',
+        error,
+        stackTrace,
+      );
+
+      _showError(
+        'Some booking information is invalid. '
+        'Please check your details and try again.',
+      );
+
+      return null;
+    } on PlatformException catch (error, stackTrace) {
+      _logError(
+        'Booking failed because of a platform error.',
+        error,
+        stackTrace,
+      );
+
+      _showError(
+        'A device error occurred while processing your booking.',
+      );
+
+      return null;
+    } catch (error, stackTrace) {
+      _logError(
+        'An unexpected error occurred during booking.',
+        error,
+        stackTrace,
+      );
+
+      _showError(
+        'Unable to complete your booking. Please try again.',
       );
 
       return null;
     } finally {
-      isBooking.value = false;
+      if (!_isDisposed) {
+        isBooking.value = false;
+      }
     }
+  }
+
+  Future<void> confirmBookingAndNavigate() async {
+    FocusManager.instance.primaryFocus?.unfocus();
+
+    final bookingReference = await confirmBooking();
+
+    if (_isDisposed || bookingReference == null) {
+      return;
+    }
+
+    Get.off(
+      () => BookingConfirmationScreen(
+        event: event,
+        selectedSeats: selectedSeats,
+        bookingReference: bookingReference,
+        attendeeName: nameController.text.trim(),
+        attendeeEmail: emailController.text.trim(),
+        attendeePhone: phoneController.text.trim(),
+        totalAmount: totalAmount,
+        discountAmount: discountAmount.value,
+        finalAmount: finalAmount.value,
+      ),
+    );
   }
 
   @override
   void onClose() {
+    _isDisposed = true;
+
     nameController.dispose();
     emailController.dispose();
     phoneController.dispose();

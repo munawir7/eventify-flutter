@@ -4,10 +4,10 @@ import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:intl/intl.dart';
 
-import '../models/event_model.dart';
+import '../../../domain/entities/event.dart';
 
 class EventDetailsScreen extends StatelessWidget {
-  final EventModel event;
+  final Event event;
 
   const EventDetailsScreen({
     super.key,

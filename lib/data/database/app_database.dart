@@ -1,59 +1,121 @@
+import 'dart:developer' as developer;
 
 import 'package:path/path.dart';
 import 'package:sqflite/sqflite.dart';
 
-import 'seed_data.dart';
 import '../../core/constants/app_constants.dart';
+import 'seed_data.dart';
 
 class AppDatabase {
-  AppDatabase._();
+AppDatabase._();
 
-  static final AppDatabase instance = AppDatabase._();
+static final AppDatabase instance = AppDatabase._();
 
-  Database? _database;
+Database? _database;
 
-  Future<Database> get database async {
-    if (_database != null) {
-      return _database!;
-    }
+Future<Database> get database async {
+if (_database != null && _database!.isOpen) {
+return _database!;
+}
 
-    _database = await _initDatabase();
-    return _database!;
-  }
+try {
+  final database = await _initDatabase();
+  _database = database;
+  return database;
+} on DatabaseException catch (e, stackTrace) {
+  developer.log(
+    'Failed to initialize Eventify database.',
+    error: e,
+    stackTrace: stackTrace,
+    name: 'Eventify.AppDatabase',
+  );
 
-  Future<Database> _initDatabase() async {
-    final databasePath = await getDatabasesPath();
+  rethrow;
+} catch (e, stackTrace) {
+  developer.log(
+    'Unexpected error during database initialization.',
+    error: e,
+    stackTrace: stackTrace,
+    name: 'Eventify.AppDatabase',
+  );
 
-    final path = join(
-      databasePath,
-      AppConstants.databaseName,
-    );
+  rethrow;
+}
 
-    return openDatabase(
-      path,
-      version: AppConstants.databaseVersion,
-      onCreate: _createTables,
-    );
-  }
+}
 
-  
-Future<void> _createTables(Database db, int version) async {
-  await db.execute('PRAGMA foreign_keys = ON');
+Future<Database> _initDatabase() async {
+try {
+final databasePath = await getDatabasesPath();
 
-  await db.execute('''
-    CREATE TABLE events (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      title TEXT NOT NULL,
-      category TEXT NOT NULL,
-      description TEXT NOT NULL,
-      venue TEXT NOT NULL,
-      event_date TEXT NOT NULL,
-      price REAL NOT NULL,
-      poster_url TEXT NOT NULL,
-      total_seats INTEGER NOT NULL,
-      is_featured INTEGER NOT NULL DEFAULT 0
-    )
-  ''');
+  final path = join(
+    databasePath,
+    AppConstants.databaseName,
+  );
+
+  return await openDatabase(
+    path,
+    version: AppConstants.databaseVersion,
+    onConfigure: _onConfigure,
+    onCreate: _createTables,
+  );
+} on DatabaseException catch (e, stackTrace) {
+  developer.log(
+    'SQLite could not open the Eventify database.',
+    error: e,
+    stackTrace: stackTrace,
+    name: 'Eventify.AppDatabase',
+  );
+
+  rethrow;
+} catch (e, stackTrace) {
+  developer.log(
+    'Unexpected error while opening the Eventify database.',
+    error: e,
+    stackTrace: stackTrace,
+    name: 'Eventify.AppDatabase',
+  );
+
+  rethrow;
+}
+
+}
+
+Future<void> _onConfigure(Database db) async {
+try {
+await db.execute('PRAGMA foreign_keys = ON');
+} on DatabaseException catch (e, stackTrace) {
+developer.log(
+'Failed to enable SQLite foreign-key enforcement.',
+error: e,
+stackTrace: stackTrace,
+name: 'Eventify.AppDatabase',
+);
+
+  rethrow;
+}
+
+}
+
+Future<void> _createTables(
+Database db,
+int version,
+) async {
+try {
+await db.execute('''
+CREATE TABLE events (
+id INTEGER PRIMARY KEY AUTOINCREMENT,
+title TEXT NOT NULL,
+category TEXT NOT NULL,
+description TEXT NOT NULL,
+venue TEXT NOT NULL,
+event_date TEXT NOT NULL,
+price REAL NOT NULL,
+poster_url TEXT NOT NULL,
+total_seats INTEGER NOT NULL,
+is_featured INTEGER NOT NULL DEFAULT 0
+)
+''');
 
   await db.execute('''
     CREATE TABLE seats (
@@ -107,6 +169,30 @@ Future<void> _createTables(Database db, int version) async {
   ''');
 
   await SeedData.insertSampleData(db);
+
+  developer.log(
+    'Eventify database tables created successfully.',
+    name: 'Eventify.AppDatabase',
+  );
+} on DatabaseException catch (e, stackTrace) {
+  developer.log(
+    'Database error while creating tables or inserting sample data.',
+    error: e,
+    stackTrace: stackTrace,
+    name: 'Eventify.AppDatabase',
+  );
+
+  rethrow;
+} catch (e, stackTrace) {
+  developer.log(
+    'Unexpected error while creating tables or inserting sample data.',
+    error: e,
+    stackTrace: stackTrace,
+    name: 'Eventify.AppDatabase',
+  );
+
+  rethrow;
 }
 
+}
 }

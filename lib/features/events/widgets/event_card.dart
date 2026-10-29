@@ -2,10 +2,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
-import '../models/event_model.dart';
+import '../../../domain/entities/event.dart';
 
 class EventCard extends StatelessWidget {
-  final EventModel event;
+  final Event event;
   final VoidCallback onTap;
 
   const EventCard({

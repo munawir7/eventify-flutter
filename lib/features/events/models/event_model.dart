@@ -1,28 +1,35 @@
 
-class EventModel {
-  final int? id;
-  final String title;
-  final String category;
-  final String description;
-  final String venue;
-  final DateTime eventDate;
-  final double price;
-  final String posterUrl;
-  final int totalSeats;
-  final bool isFeatured;
+import '../../../domain/entities/event.dart';
 
+class EventModel extends Event {
   const EventModel({
-    this.id,
-    required this.title,
-    required this.category,
-    required this.description,
-    required this.venue,
-    required this.eventDate,
-    required this.price,
-    required this.posterUrl,
-    required this.totalSeats,
-    this.isFeatured = false,
+    super.id,
+    required super.title,
+    required super.category,
+    required super.description,
+    required super.venue,
+    required super.eventDate,
+    required super.price,
+    required super.posterUrl,
+    required super.totalSeats,
+    super.isFeatured = false,
   });
+
+  factory EventModel.fromEntity(Event event) {
+    if (event is EventModel) return event;
+    return EventModel(
+      id: event.id,
+      title: event.title,
+      category: event.category,
+      description: event.description,
+      venue: event.venue,
+      eventDate: event.eventDate,
+      price: event.price,
+      posterUrl: event.posterUrl,
+      totalSeats: event.totalSeats,
+      isFeatured: event.isFeatured,
+    );
+  }
 
   Map<String, dynamic> toMap() {
     return {

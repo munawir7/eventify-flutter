@@ -1,3 +1,5 @@
+
+import 'package:eventify/core/binding/app_binding.dart';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
@@ -20,6 +22,10 @@ class EventifyApp extends StatelessWidget {
     return GetMaterialApp(
       title: AppConstants.appName,
       debugShowCheckedModeBanner: false,
+
+      // Register application dependencies.
+      initialBinding: AppBinding(),
+
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
       themeMode: ThemeMode.system,

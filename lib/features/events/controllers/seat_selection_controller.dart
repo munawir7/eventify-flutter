@@ -1,23 +1,36 @@
 
-import 'package:eventify/data/repositories/seat_repositery.dart';
 import 'package:get/get.dart';
 
 import '../../../core/constants/app_constants.dart';
-import '../models/seat_model.dart';
+import '../../../data/repositories/seat_repositery.dart';
+import '../../../domain/entities/seat.dart';
+import '../../../domain/usecases/seats/get_seats_by_event_id_usecases.dart';
 
 class SeatSelectionController extends GetxController {
   SeatSelectionController({
     required this.eventId,
-  });
+    GetSeatsByEventIdUseCase? getSeatsByEventIdUseCase,
+  }) : _getSeatsByEventIdUseCase =
+           getSeatsByEventIdUseCase ?? _resolveGetSeatsUseCase();
+
+  static GetSeatsByEventIdUseCase _resolveGetSeatsUseCase() {
+    if (Get.isRegistered<GetSeatsByEventIdUseCase>()) {
+      return Get.find<GetSeatsByEventIdUseCase>();
+    }
+    final repo = Get.isRegistered<SeatRepository>()
+        ? Get.find<SeatRepository>()
+        : Get.put<SeatRepository>(SeatRepository());
+    return Get.put<GetSeatsByEventIdUseCase>(GetSeatsByEventIdUseCase(repo));
+  }
 
   final int eventId;
 
-  final SeatRepository _seatRepository = SeatRepository();
+  final GetSeatsByEventIdUseCase _getSeatsByEventIdUseCase;
 
-  // All seats belonging to the selected event.
-  final RxList<SeatModel> seats = <SeatModel>[].obs;
+  // All seats for the selected event.
+  final RxList<Seat> seats = <Seat>[].obs;
 
-  // IDs of seats selected by the user.
+  // IDs of the seats selected by the user.
   final RxList<int> selectedSeatIds = <int>[].obs;
 
   final RxBool isLoading = false.obs;
@@ -27,23 +40,21 @@ class SeatSelectionController extends GetxController {
   double get totalPrice {
     double total = 0;
 
-    for (final seat in seats) {
-      if (selectedSeatIds.contains(seat.id)) {
-        total += seat.price;
-      }
+    for (final seat in selectedSeats) {
+      total += seat.price;
     }
 
     return total;
   }
 
-  // Get the complete details of the selected seats.
-  List<SeatModel> get selectedSeats {
+  // Return the selected seats.
+  List<Seat> get selectedSeats {
     return seats
         .where((seat) => selectedSeatIds.contains(seat.id))
         .toList();
   }
 
-  // Number of seats currently selected.
+  // Number of selected seats.
   int get selectedCount => selectedSeatIds.length;
 
   @override
@@ -52,59 +63,56 @@ class SeatSelectionController extends GetxController {
     loadSeats();
   }
 
-  // Load seats for this event from the local database.
-  Future<void> loadSeats() async {
-    isLoading.value = true;
-    errorMessage.value = '';
+  // Load seats using the domain use case.
+  
+Future<void> loadSeats() async {
+  isLoading.value = true;
+  errorMessage.value = '';
 
-    try {
-      final loadedSeats =
-          await _seatRepository.getSeatsByEventId(eventId);
+  try {
+    final List<Seat> loadedSeats =
+        await _getSeatsByEventIdUseCase(eventId);
 
-      seats.assignAll(loadedSeats);
-    } catch (e) {
-      errorMessage.value = 'Unable to load seats. Please try again.';
-    } finally {
-      isLoading.value = false;
-    }
+    seats.assignAll(loadedSeats);
+  } catch (e) {
+    errorMessage.value = 'Unable to load seats. Please try again.';
+  } finally {
+    isLoading.value = false;
   }
+}
+
 
   // Select or deselect a seat.
-  void toggleSeat(SeatModel seat) {
-    final seatId = seat.id;
-
-    if (seatId == null) {
+  void toggleSeat(Seat seat) {
+    if (seat.id == null) {
       return;
     }
 
-    // If the seat is already selected, deselect it.
-    if (selectedSeatIds.contains(seatId)) {
-      selectedSeatIds.remove(seatId);
-      return;
-    }
-
-    // Only available seats can be selected.
     if (seat.status != 'available') {
       Get.snackbar(
-        'Seat unavailable',
-        'Please choose another seat.',
+        'Seat Unavailable',
+        'This seat is not available for booking.',
         snackPosition: SnackPosition.BOTTOM,
       );
       return;
     }
 
-    // Enforce the maximum number of tickets per booking.
+    if (selectedSeatIds.contains(seat.id)) {
+      selectedSeatIds.remove(seat.id);
+      return;
+    }
+
     if (selectedSeatIds.length >= AppConstants.maxTicketsPerBooking) {
       Get.snackbar(
-        'Booking limit reached',
+        'Limit Reached',
         'You can select a maximum of '
-            '${AppConstants.maxTicketsPerBooking} seats.',
+        '${AppConstants.maxTicketsPerBooking} seats.',
         snackPosition: SnackPosition.BOTTOM,
       );
       return;
     }
 
-    selectedSeatIds.add(seatId);
+    selectedSeatIds.add(seat.id!);
   }
 
   // Clear all selected seats.

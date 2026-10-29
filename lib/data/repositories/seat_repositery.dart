@@ -2,13 +2,33 @@
 import 'package:sqflite/sqflite.dart';
 
 import '../database/app_database.dart';
+import '../../domain/entities/seat.dart' as domain_entity;
+import '../../domain/repositories/seat_repository.dart'
+    as domain_repository;
 import '../../features/events/models/seat_model.dart';
 
-class SeatRepository {
-  final AppDatabase _appDatabase = AppDatabase.instance;
+class SeatRepository implements domain_repository.SeatRepository {
+  SeatRepository({AppDatabase? appDatabase})
+      : _appDatabase = appDatabase ?? AppDatabase.instance;
 
-  /// Retrieves all seats belonging to a particular event.
-  Future<List<SeatModel>> getSeatsByEventId(int eventId) async {
+  final AppDatabase _appDatabase;
+
+  // Convert the database model into a domain entity.
+  domain_entity.Seat _toEntity(SeatModel model) {
+    return domain_entity.Seat(
+      id: model.id,
+      eventId: model.eventId,
+      seatNumber: model.seatNumber,
+      category: model.category,
+      price: model.price,
+      status: model.status,
+    );
+  }
+
+  @override
+  Future<List<domain_entity.Seat>> getSeatsByEventId(
+    int eventId,
+  ) async {
     final Database db = await _appDatabase.database;
 
     final List<Map<String, dynamic>> maps = await db.query(
@@ -18,11 +38,11 @@ class SeatRepository {
       orderBy: 'id ASC',
     );
 
-    return maps.map(SeatModel.fromMap).toList();
+    return maps.map(SeatModel.fromMap).map(_toEntity).toList();
   }
 
-  /// Retrieves a particular seat by its database ID.
-  Future<SeatModel?> getSeatById(int seatId) async {
+  @override
+  Future<domain_entity.Seat?> getSeatById(int seatId) async {
     final Database db = await _appDatabase.database;
 
     final List<Map<String, dynamic>> maps = await db.query(
@@ -36,11 +56,11 @@ class SeatRepository {
       return null;
     }
 
-    return SeatModel.fromMap(maps.first);
+    return _toEntity(SeatModel.fromMap(maps.first));
   }
 
-  /// Retrieves seats belonging to a particular category.
-  Future<List<SeatModel>> getSeatsByCategory({
+  @override
+  Future<List<domain_entity.Seat>> getSeatsByCategory({
     required int eventId,
     required String category,
   }) async {
@@ -53,6 +73,6 @@ class SeatRepository {
       orderBy: 'id ASC',
     );
 
-    return maps.map(SeatModel.fromMap).toList();
+    return maps.map(SeatModel.fromMap).map(_toEntity).toList();
   }
 }

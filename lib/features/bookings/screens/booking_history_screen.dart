@@ -2,8 +2,11 @@
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 
-import '../../../data/repositories/booking_repository.dart';
-import '../models/booking_model.dart';
+import '../../../data/repositories/booking_repository_impl.dart';
+import '../../../domain/entities/booking.dart';
+import '../../../domain/repositories/booking_repository.dart';
+import '../../../domain/usecases/bookings/cancel_booking_usecases.dart';
+import '../../../domain/usecases/bookings/get_all_bookings_usecases.dart';
 
 class BookingHistoryScreen extends StatefulWidget {
   const BookingHistoryScreen({super.key});
@@ -14,24 +17,40 @@ class BookingHistoryScreen extends StatefulWidget {
 }
 
 class _BookingHistoryScreenState extends State<BookingHistoryScreen> {
-  final BookingRepository _repository = BookingRepository();
+  late final GetAllBookingsUseCase _getAllBookingsUseCase;
+  late final CancelBookingUseCase _cancelBookingUseCase;
 
-  List<BookingModel> _bookings = [];
+  List<Booking> _bookings = [];
   bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
+
+    final repo = Get.isRegistered<BookingRepository>()
+        ? Get.find<BookingRepository>()
+        : Get.put<BookingRepository>(BookingRepositoryImpl());
+
+    _getAllBookingsUseCase = Get.isRegistered<GetAllBookingsUseCase>()
+        ? Get.find<GetAllBookingsUseCase>()
+        : Get.put(GetAllBookingsUseCase(repo));
+
+    _cancelBookingUseCase = Get.isRegistered<CancelBookingUseCase>()
+        ? Get.find<CancelBookingUseCase>()
+        : Get.put(CancelBookingUseCase(repo));
+
     _loadBookings();
   }
 
   Future<void> _loadBookings() async {
+    if (!mounted) return;
+
     setState(() {
       _isLoading = true;
     });
 
     try {
-      final bookings = await _repository.getAllBookings();
+      final bookings = await _getAllBookingsUseCase.call();
 
       if (!mounted) return;
 
@@ -54,7 +73,7 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen> {
     }
   }
 
-  Future<void> _cancelBooking(BookingModel booking) async {
+  Future<void> _cancelBooking(Booking booking) async {
     final bool? confirmed = await Get.dialog<bool>(
       AlertDialog(
         title: const Text('Cancel Ticket?'),
@@ -82,7 +101,9 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen> {
 
     try {
       final bool success =
-          await _repository.cancelBooking(booking.bookingReference);
+          await _cancelBookingUseCase.call(booking.bookingReference);
+
+      if (!mounted) return;
 
       if (success) {
         Get.snackbar(
@@ -100,6 +121,8 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen> {
         );
       }
     } catch (error) {
+      if (!mounted) return;
+
       Get.snackbar(
         'Error',
         'Unable to cancel this booking. Please try again.',
@@ -159,8 +182,10 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen> {
                     itemCount: _bookings.length,
                     itemBuilder: (context, index) {
                       final booking = _bookings[index];
+
                       final bool isConfirmed =
                           booking.status.toLowerCase() == 'confirmed';
+
                       final bool canCancel =
                           isConfirmed && !booking.isCheckedIn;
 
@@ -240,7 +265,7 @@ class _BookingHistoryScreenState extends State<BookingHistoryScreen> {
     );
   }
 
-  Widget _statusBadge(BookingModel booking) {
+  Widget _statusBadge(Booking booking) {
     final bool isConfirmed =
         booking.status.toLowerCase() == 'confirmed';
 
